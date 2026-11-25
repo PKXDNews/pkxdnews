@@ -225,7 +225,7 @@ footer{background:var(--grafite);border-top:5px solid var(--laranja)}
     const meta = currentUser.user_metadata || {};
     $("authNick").value = meta.nick || meta.name || "";
     $("authHashtag").value = meta.hashtag || "";
-    message("E-mail confirmado! Agora informe seu nick, hashtag e crie uma senha para o site.");
+    message("E-mail reconhecido! Agora informe seu nick, hashtag e crie uma senha para o site.");
   }
   async function saveProfile() {
     const nick = $("authNick").value.trim();
@@ -283,9 +283,10 @@ footer{background:var(--grafite);border-top:5px solid var(--laranja)}
     currentUser = session.user;
     currentEmail = currentUser.email;
     emailFlow = "google";
-    // Additional email code after Google sign-in, as requested.
-    await sendOtp(currentEmail, "google", false);
-    message("Google conectado. Também enviamos um código de confirmação ao seu e-mail.");
+    // Google OAuth verifies the account's email. Do not send a second OTP here,
+    // because custom SMTP may not be configured yet.
+    await loadProfileOrOnboard();
+    message("Login com Google concluído! O Google já confirmou seu e-mail. Complete seu perfil abaixo.");
   }
   async function init() {
     if (!configured) {
