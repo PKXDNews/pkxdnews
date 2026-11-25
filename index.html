@@ -90,32 +90,10 @@ footer{background:var(--grafite);border-top:5px solid var(--laranja)}
 <section class="section" id="conta">
   <div class="wrap panel auth-panel">
     <h2>Cadastro e Login</h2>
-    <p class="auth-intro">Crie sua conta PK XD News ou entre em uma conta existente.</p>
-    <div class="auth-tabs">
-      <button type="button" class="btn" id="authTabSignup">Criar conta</button>
-      <button type="button" class="btn orange" id="authTabLogin">Entrar</button>
-    </div>
-    <div id="authMessage" class="notice auth-message" role="status" aria-live="polite">
-      O sistema de cadastro precisa ser conectado ao serviço de autenticação para enviar códigos reais.
-    </div>
-    <div id="authStepEmail" class="auth-step">
-      <label class="auth-label" for="authEmail">Seu e-mail</label>
-      <input id="authEmail" type="email" autocomplete="email" placeholder="voce@email.com" required>
-      <div id="authPasswordLoginWrap" class="auth-field hidden">
-        <label class="auth-label" for="authPasswordLogin">Senha</label>
-        <input id="authPasswordLogin" type="password" autocomplete="current-password" minlength="6" placeholder="Sua senha (mínimo 6 caracteres)">
-      </div>
-      <button type="button" class="btn auth-primary" id="authEmailAction">Enviar código de verificação</button>
-      <div class="auth-divider"><span>ou</span></div>
+    <p class="auth-intro">Entre ou crie sua conta PK XD News usando sua conta Google.</p>
+    <div id="authMessage" class="notice auth-message" role="status" aria-live="polite">Conecte-se com o Google para continuar.</div>
+    <div id="authStepGoogle" class="auth-step">
       <button type="button" class="btn auth-google" id="authGoogle"><span aria-hidden="true">G</span> Continuar com Google</button>
-    </div>
-    <div id="authStepCode" class="auth-step hidden">
-      <p>Enviamos um código de 6 dígitos para <b id="authEmailSent"></b>. Confira também a caixa de spam.</p>
-      <label class="auth-label" for="authCode">Código de verificação</label>
-      <input id="authCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
-      <button type="button" class="btn auth-primary" id="authVerifyCode">Verificar código</button>
-      <button type="button" class="auth-text-button" id="authResend">Enviar outro código</button>
-      <button type="button" class="auth-text-button" id="authBack">Voltar</button>
     </div>
     <div id="authStepProfile" class="auth-step hidden">
       <h3>Complete seu perfil</h3>
@@ -123,9 +101,6 @@ footer{background:var(--grafite);border-top:5px solid var(--laranja)}
       <input id="authNick" type="text" maxlength="32" placeholder="Ex.: Aleatório" autocomplete="nickname">
       <label class="auth-label" for="authHashtag">Hashtag</label>
       <input id="authHashtag" type="text" maxlength="16" placeholder="Ex.: #000">
-      <label class="auth-label" for="authPasswordNew">Senha da conta PK XD News</label>
-      <input id="authPasswordNew" type="password" minlength="6" autocomplete="new-password" placeholder="No mínimo 6 caracteres">
-      <small>Esta senha é somente para entrar neste site — nunca informe sua senha do jogo PK XD.</small>
       <button type="button" class="btn auth-primary" id="authSaveProfile">Finalizar cadastro</button>
     </div>
     <div id="authStepAccount" class="auth-step hidden">
@@ -144,215 +119,63 @@ footer{background:var(--grafite);border-top:5px solid var(--laranja)}
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 (() => {
-  // Configure these two values in the Supabase project, then paste them here.
   const SUPABASE_URL = "https://vmhhtomglrsrzymzltlh.supabase.co";
   const SUPABASE_ANON_KEY = "sb_publishable_2HAHFdwTG5Mp4QemUBetHg_0tco01iD";
-  const configured = SUPABASE_URL.startsWith("https://") &&
-                    !SUPABASE_URL.includes("COLOQUE_") &&
-                    !SUPABASE_ANON_KEY.includes("COLOQUE_");
   const $ = id => document.getElementById(id);
-  const steps = ["authStepEmail","authStepCode","authStepProfile","authStepAccount"];
-  let mode = "signup";
-  let emailFlow = "signup";
-  let currentEmail = "";
-  let currentUser = null;
-  let supabase = null;
-
-  function showStep(stepId) {
-    steps.forEach(id => $(id).classList.toggle("hidden", id !== stepId));
+  let supabase, currentUser;
+  function show(step) {
+    ["authStepGoogle", "authStepProfile", "authStepAccount"].forEach(id => $(id).classList.toggle("hidden", id !== step));
   }
-  function message(text, isError=false) {
-    const el = $("authMessage");
-    el.textContent = text;
-    el.style.borderColor = isError ? "#ff6b6b" : "var(--laranja)";
-    el.style.color = "#fff";
-    el.style.display = "block";
+  function message(text, error=false) {
+    const el = $("authMessage"); el.textContent = text; el.style.borderColor = error ? "#ff6b6b" : "var(--laranja)"; el.style.display = "block";
   }
-  function setBusy(button, busy, label) {
-    button.disabled = busy;
-    if (busy) button.dataset.oldText = button.textContent;
-    button.textContent = busy ? "Aguarde..." : (label || button.dataset.oldText || button.textContent);
-  }
-  function errorText(error) {
-    const text = error?.message || String(error || "Ocorreu um erro.");
-    if (/invalid.*otp|token.*invalid|expired/i.test(text)) return "Código inválido ou expirado. Confira e tente novamente.";
-    if (/rate limit|too many requests/i.test(text)) return "Muitas tentativas. Aguarde um pouco antes de pedir outro código.";
-    if (/already registered|already exists/i.test(text)) return "Este e-mail já possui cadastro. Use a opção Entrar.";
-    return text;
-  }
-  function showMode(newMode) {
-    mode = newMode;
-    $("authPasswordLoginWrap").classList.toggle("hidden", mode !== "login");
-    $("authEmailAction").textContent = mode === "login" ? "Entrar com código por e-mail" : "Enviar código de verificação";
-    $("authTabSignup").classList.toggle("orange", mode !== "signup");
-    $("authTabLogin").classList.toggle("orange", mode !== "login");
-    showStep("authStepEmail");
-    message(mode === "login" ? "Entre usando seu e-mail e senha, ou receba um código de acesso." :
-      "Cadastre-se com e-mail e confirme com o código de 6 dígitos.");
-  }
-  async function sendOtp(email, flow, shouldCreate) {
-    currentEmail = email.trim().toLowerCase();
-    emailFlow = flow;
-    $("authEmailSent").textContent = currentEmail;
-    const { error } = await supabase.auth.signInWithOtp({
-      email: currentEmail,
-      options: { shouldCreateUser: shouldCreate }
-    });
-    if (error) throw error;
-    showStep("authStepCode");
-    message("Código enviado! Confira sua caixa de entrada e spam.");
-  }
-  async function finishOtp(token) {
-    const { data, error } = await supabase.auth.verifyOtp({
-      email: currentEmail, token: token.trim(), type: "email"
-    });
-    if (error) throw error;
-    currentUser = data.user;
-    if (!currentUser) throw new Error("Não recebemos a confirmação do usuário. Tente novamente.");
-    await loadProfileOrOnboard();
-  }
-  async function loadProfileOrOnboard() {
-    const { data, error } = await supabase.from("pkxd_profiles")
-      .select("nick,hashtag").eq("id", currentUser.id).maybeSingle();
+  function busy(btn, yes, label) { btn.disabled = yes; btn.textContent = yes ? "Aguarde..." : label; }
+  async function loadProfile() {
+    const { data, error } = await supabase.from("pkxd_profiles").select("nick,hashtag").eq("id", currentUser.id).maybeSingle();
     if (error) throw error;
     if (data) {
       $("authAccountDetails").textContent = `${data.nick}${data.hashtag || ""} • ${currentUser.email || ""}`;
-      showStep("authStepAccount");
-      message("Você já está conectado à sua conta PK XD News.");
-      return;
+      show("authStepAccount"); message("Você está conectado à sua conta PK XD News!");
+    } else {
+      const meta = currentUser.user_metadata || {};
+      $("authNick").value = meta.nick || meta.name || ""; $("authHashtag").value = meta.hashtag || "";
+      show("authStepProfile"); message("Google conectado! Preencha seu nick e hashtag para concluir o cadastro.");
     }
-    showStep("authStepProfile");
-    const meta = currentUser.user_metadata || {};
-    $("authNick").value = meta.nick || meta.name || "";
-    $("authHashtag").value = meta.hashtag || "";
-    message("E-mail reconhecido! Agora informe seu nick, hashtag e crie uma senha para o site.");
+  }
+  async function googleLogin() {
+    const btn = $("authGoogle"); busy(btn, true, "Continuar com Google");
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: location.href.split("#")[0] } });
+      if (error) throw error;
+    } catch (e) { message(e.message || String(e), true); busy(btn, false, "Continuar com Google"); }
   }
   async function saveProfile() {
-    const nick = $("authNick").value.trim();
-    const hashtag = $("authHashtag").value.trim();
-    const password = $("authPasswordNew").value;
-    if (!nick) throw new Error("Informe seu nick.");
-    if (!password || password.length < 6) throw new Error("A senha precisa ter pelo menos 6 caracteres.");
-    const button = $("authSaveProfile");
-    setBusy(button, true);
+    const nick = $("authNick").value.trim(), hashtag = $("authHashtag").value.trim(), btn = $("authSaveProfile");
+    if (!nick) return message("Informe seu nick do PK XD.", true);
+    busy(btn, true, "Finalizar cadastro");
     try {
-      const { error: passwordError } = await supabase.auth.updateUser({
-        password,
-        data: { nick, hashtag }
-      });
-      if (passwordError) throw passwordError;
-      const { error: profileError } = await supabase.from("pkxd_profiles").upsert({
-        id: currentUser.id, nick, hashtag, updated_at: new Date().toISOString()
-      });
-      if (profileError) throw profileError;
+      const { error: metaError } = await supabase.auth.updateUser({ data: { nick, hashtag } });
+      if (metaError) throw metaError;
+      const { error } = await supabase.from("pkxd_profiles").upsert({ id: currentUser.id, nick, hashtag, updated_at: new Date().toISOString() });
+      if (error) throw error;
       $("authAccountDetails").textContent = `${nick}${hashtag} • ${currentUser.email || ""}`;
-      showStep("authStepAccount");
-      message("Cadastro finalizado com sucesso! 🎉");
-    } finally {
-      setBusy(button, false, "Finalizar cadastro");
-    }
+      show("authStepAccount"); message("Cadastro finalizado com sucesso! 🎉");
+    } catch (e) { message(e.message || String(e), true); }
+    finally { busy(btn, false, "Finalizar cadastro"); }
   }
   async function logout() {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-    currentUser = null;
-    $("authEmail").value = "";
-    $("authPasswordLogin").value = "";
-    $("authCode").value = "";
-    showMode("signup");
-    message("Você saiu da sua conta.");
-  }
-  async function googleStart() {
-    localStorage.setItem("pkxd_google_otp_pending", "1");
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: location.href.split("#")[0] }
-    });
-    if (error) {
-      localStorage.removeItem("pkxd_google_otp_pending");
-      throw error;
-    }
-  }
-  async function handleGoogleReturn() {
-    const pending = localStorage.getItem("pkxd_google_otp_pending");
-    if (!pending) return;
-    const { data: { session }, error } = await supabase.auth.getSession();
-    if (error) throw error;
-    if (!session?.user?.email) return;
-    localStorage.removeItem("pkxd_google_otp_pending");
-    currentUser = session.user;
-    currentEmail = currentUser.email;
-    emailFlow = "google";
-    // Google OAuth verifies the account's email. Do not send a second OTP here,
-    // because custom SMTP may not be configured yet.
-    await loadProfileOrOnboard();
-    message("Login com Google concluído! O Google já confirmou seu e-mail. Complete seu perfil abaixo.");
+    const { error } = await supabase.auth.signOut(); if (error) throw error;
+    currentUser = null; show("authStepGoogle"); message("Você saiu da sua conta. Entre novamente com o Google.");
   }
   async function init() {
-    if (!configured) {
-      message("Cadastro preparado, mas ainda falta conectar o Supabase. Preencha a URL e a chave pública no código para ativar envio real de códigos, Google e salvamento de perfis.", true);
-      $("authEmailAction").disabled = true;
-      $("authGoogle").disabled = true;
-      $("authVerifyCode").disabled = true;
-      $("authResend").disabled = true;
-      $("authSaveProfile").disabled = true;
-      $("authLogout").disabled = true;
-      return;
-    }
     supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-      currentUser = session.user;
-      await handleGoogleReturn();
-      if (!$("authStepCode").classList.contains("hidden")) return;
-      await loadProfileOrOnboard();
-    }
+    const { data, error } = await supabase.auth.getSession(); if (error) throw error;
+    if (data.session?.user) { currentUser = data.session.user; await loadProfile(); }
   }
-
-  $("authTabSignup").addEventListener("click", () => showMode("signup"));
-  $("authTabLogin").addEventListener("click", () => showMode("login"));
-  $("authEmailAction").addEventListener("click", async () => {
-    const email = $("authEmail").value.trim();
-    const btn = $("authEmailAction");
-    if (!email) return message("Digite seu e-mail.", true);
-    setBusy(btn, true);
-    try {
-      if (mode === "login" && $("authPasswordLogin").value) {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email, password: $("authPasswordLogin").value
-        });
-        if (error) throw error;
-        currentUser = data.user;
-        await loadProfileOrOnboard();
-      } else {
-        await sendOtp(email, mode, mode === "signup");
-      }
-    } catch (e) { message(errorText(e), true); }
-    finally { setBusy(btn, false, mode === "login" ? "Entrar com código por e-mail" : "Enviar código de verificação"); }
-  });
-  $("authGoogle").addEventListener("click", async () => {
-    try { await googleStart(); } catch (e) { message(errorText(e), true); }
-  });
-  $("authVerifyCode").addEventListener("click", async () => {
-    const code = $("authCode").value.trim();
-    if (!/^\d{6}$/.test(code)) return message("Digite o código de 6 dígitos que chegou no e-mail.", true);
-    const btn = $("authVerifyCode");
-    setBusy(btn, true);
-    try { await finishOtp(code); } catch (e) { message(errorText(e), true); }
-    finally { setBusy(btn, false, "Verificar código"); }
-  });
-  $("authResend").addEventListener("click", async () => {
-    try { await sendOtp(currentEmail, emailFlow, emailFlow === "signup"); }
-    catch (e) { message(errorText(e), true); }
-  });
-  $("authBack").addEventListener("click", () => showMode(mode));
-  $("authSaveProfile").addEventListener("click", async () => {
-    try { await saveProfile(); } catch (e) { message(errorText(e), true); }
-  });
-  $("authLogout").addEventListener("click", async () => {
-    try { await logout(); } catch (e) { message(errorText(e), true); }
-  });
-  init().catch(e => message(errorText(e), true));
+  $("authGoogle").addEventListener("click", googleLogin);
+  $("authSaveProfile").addEventListener("click", saveProfile);
+  $("authLogout").addEventListener("click", async () => { try { await logout(); } catch(e) { message(e.message || String(e), true); } });
+  init().catch(e => message(e.message || String(e), true));
 })();
 </script>
 
